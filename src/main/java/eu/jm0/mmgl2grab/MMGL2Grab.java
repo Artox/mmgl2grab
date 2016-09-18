@@ -1,12 +1,18 @@
 package eu.jm0.mmgl2grab;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.Collection;
+import java.util.LinkedList;
 import java.util.logging.Level;
 
-import org.bukkit.Bukkit;
+import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 /**
@@ -37,10 +43,12 @@ import org.bukkit.scheduler.BukkitTask;
  * 
  * @author Josua Mayer
  */
-public class MMGL2Grab extends org.bukkit.plugin.java.JavaPlugin {
+public class MMGL2Grab extends JavaPlugin implements MMGL2GrabService {
+	protected volatile File DB = null;
 	protected final String DBname = "geolite2.mmdb";
 	protected final String DBurlstr = "http://geolite.maxmind.com/download/geoip/database/GeoLite2-Country.mmdb.gz";
-	Downloader download = null;
+	protected volatile boolean ready = false;
+	protected Downloader download = null;
 	protected BukkitTask downloadTask = null;
 
 	/**
@@ -68,11 +76,14 @@ public class MMGL2Grab extends org.bukkit.plugin.java.JavaPlugin {
 	}
 
 	/**
-	 * Called when the plugin gets enabled. Checks if the database exists, and
-	 * triggers a download if missing
+	 * Called when the plugin gets enabled. Registers public API as a service,
+	 * checks if the database exists and triggers a download if missing
 	 */
 	@Override
 	public void onEnable() {
+		// register service
+		getServer().getServicesManager().register(MMGL2GrabService.class, this, this, ServicePriority.Normal);
+
 		File dir = getDataFolder();
 		if (!dir.exists() || !dir.canRead() || !dir.isDirectory()) {
 			// these errors have been reported in load(), return quietly
@@ -93,6 +104,12 @@ public class MMGL2Grab extends org.bukkit.plugin.java.JavaPlugin {
 		if (!db.canRead()) {
 			getLogger().log(Level.SEVERE, "GeoIP database is not readable");
 			return;
+		}
+
+		synchronized (this) {
+			DB = db;
+			ready = true;
+			notifyAll();
 		}
 	}
 
@@ -122,6 +139,23 @@ public class MMGL2Grab extends org.bukkit.plugin.java.JavaPlugin {
 				getLogger().log(Level.SEVERE, "EXCEPTION", e);
 			}
 		}
+
+		synchronized (this) {
+			for (InputStream is : handles) {
+				try {
+					is.close();
+				} catch (IOException e) {
+				}
+			}
+			handles.clear();
+
+			DB = null;
+			ready = false;
+			notifyAll();
+		}
+
+		// deregister service
+		getServer().getServicesManager().unregister(MMGL2GrabService.class, this);
 	}
 
 	/**
@@ -146,10 +180,53 @@ public class MMGL2Grab extends org.bukkit.plugin.java.JavaPlugin {
 		// create downloader task
 		try {
 			download = new Downloader(db, new URL(DBurlstr), true);
-			downloadTask = Bukkit.getServer().getScheduler().runTaskAsynchronously(this, download);
+			downloadTask = getServer().getScheduler().runTaskAsynchronously(this, download);
 		} catch (MalformedURLException e) {
 			getLogger().log(Level.SEVERE, "Failed to create GeoIP database download task", e);
 			return;
+		}
+	}
+
+	// API
+	protected volatile Collection<InputStream> handles = new LinkedList<InputStream>();
+
+	@Override
+	public synchronized boolean isReady() {
+		return ready;
+	}
+
+	@Override
+	public synchronized void waitTillReady(long timeout) {
+		long start = System.currentTimeMillis();
+		while (!ready && start < System.currentTimeMillis()) {
+			try {
+				wait(timeout);
+			} catch (InterruptedException e) {
+			}
+		}
+	}
+
+	@Override
+	public synchronized InputStream openCountryDatabase() {
+		if (!ready)
+			return null;
+
+		try {
+			InputStream is = new FileInputStream(DB);
+			handles.add(is);
+			return is;
+		} catch (FileNotFoundException e) {
+			return null;
+		}
+	}
+
+	@Override
+	public void closeCountryDatabase(InputStream is) {
+		if (handles.remove(is)) {
+			try {
+				is.close();
+			} catch (IOException e) {
+			}
 		}
 	}
 }

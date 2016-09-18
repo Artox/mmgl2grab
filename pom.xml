@@ -4,7 +4,7 @@
 	<groupId>eu.jm0.mmgl2grab</groupId>
 	<artifactId>mmgl2grab</artifactId>
 	<packaging>jar</packaging>
-	<version>0.1</version>
+	<version>0.2</version>
 	<name>mmgl2grab</name>
 	<url>http://maven.apache.org</url>
 	<dependencies>

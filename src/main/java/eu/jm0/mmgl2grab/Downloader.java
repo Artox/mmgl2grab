@@ -4,16 +4,10 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URL;
 import java.nio.ByteBuffer;
-import java.nio.channels.AsynchronousCloseException;
 import java.nio.channels.Channels;
-import java.nio.channels.ClosedByInterruptException;
-import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
-import java.nio.channels.NonReadableChannelException;
-import java.nio.channels.NonWritableChannelException;
 import java.nio.channels.ReadableByteChannel;
 import java.util.Collection;
 import java.util.LinkedList;
@@ -115,9 +109,8 @@ public class Downloader implements Runnable {
 			try {
 				int r = ic.read(buffer);
 				buffer.flip();
-				int s = oc.write(buffer);
+				oc.write(buffer);
 				buffer.clear();
-				//System.out.format("Read %d, wrote %d\\n", r, s);
 				// TODO: what if fewer bytes were written than read?
 
 				if (r == -1)
